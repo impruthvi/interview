@@ -584,5 +584,287 @@ Laravel offers several methods for API authentication, including:
 
 **Reference:** [API Authentication Documentation](https://laravel.com/docs/passport)
 
+# Advanced Laravel Interview Questions (65-75)
 
+## 65. How would you implement real-time features in Laravel?
+
+Laravel provides several approaches for real-time functionality:
+- **Laravel Broadcasting**: For broadcasting events to WebSocket connections
+- **Laravel Echo**: JavaScript library for subscribing to channels and listening to events
+- **Pusher**: Integration with external WebSocket service
+- **Laravel WebSockets**: Self-hosted WebSocket server
+
+Example implementation:
+```php
+class OrderStatusUpdated implements ShouldBroadcast
+{
+    public $order;
+
+    public function broadcastOn()
+    {
+        return new PrivateChannel('orders.' . $this->order->id);
+    }
+}
+```
+
+**Reference:** [Laravel Broadcasting](https://laravel.com/docs/broadcasting)
+
+## 66. How do you implement horizontal scaling in Laravel applications?
+
+Key considerations for horizontal scaling:
+- Session management using Redis or other distributed cache
+- Queue workers configuration for multiple servers
+- Load balancer setup
+- Filesystem management (using S3 or similar)
+- Cache invalidation strategies
+- Database replication and sharding
+
+Example Redis session configuration:
+```php
+'redis' => [
+    'driver' => 'redis',
+    'connection' => 'default',
+    'table' => 'sessions',
+    'store' => 'redis',
+    'lottery' => [2, 100],
+]
+```
+
+## 67. Explain Laravel's Service Container and Dependency Injection patterns.
+
+Advanced container bindings:
+```php
+// Contextual binding
+$this->app->when(PhotoController::class)
+          ->needs(Filesystem::class)
+          ->give(function () {
+              return Storage::disk('local');
+          });
+
+// Tagged bindings
+$this->app->tag([
+    VideoProcessor::class,
+    AudioProcessor::class,
+], 'processors');
+
+// Extending resolved instances
+$this->app->extend(Service::class, function ($service, $app) {
+    return new DecoratedService($service);
+});
+```
+
+## 68. How would you implement a robust error handling and monitoring system?
+
+Advanced error handling setup:
+```php
+class Handler extends ExceptionHandler
+{
+    public function register()
+    {
+        $this->reportable(function (CustomException $e) {
+            // Log to external service
+            \Sentry::captureException($e);
+            
+            // Custom notification
+            Notification::route('slack', 'webhook-url')
+                ->notify(new ErrorOccurred($e));
+        })->stop();
+
+        $this->renderable(function (ApiException $e) {
+            return response()->json([
+                'error' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'context' => $e->getContext(),
+            ], $e->getStatusCode());
+        });
+    }
+}
+```
+
+## 69. How would you implement a multi-tenant architecture in Laravel?
+
+Key aspects of multi-tenancy:
+```php
+class TenantScope implements Scope
+{
+    public function apply(Builder $builder, Model $model)
+    {
+        $builder->where('tenant_id', tenant()->id);
+    }
+}
+
+class Tenant extends Model
+{
+    protected $connection = 'tenant';
+    
+    public function configure()
+    {
+        Config::set('database.connections.tenant.database', 
+            'tenant_' . $this->id);
+        
+        DB::purge('tenant');
+        DB::reconnect('tenant');
+    }
+}
+```
+
+## 70. Explain advanced Eloquent relationship techniques.
+
+Complex relationship examples:
+```php
+class Post extends Model
+{
+    // Polymorphic many-to-many with custom pivot
+    public function tags()
+    {
+        return $this->morphToMany(Tag::class, 'taggable')
+                    ->using(CustomPivot::class)
+                    ->withPivot(['order', 'added_by'])
+                    ->withTimestamps();
+    }
+
+    // Has many through with constraints
+    public function threadReplies()
+    {
+        return $this->hasManyThrough(
+            Reply::class, 
+            Thread::class
+        )->where('is_approved', true)
+         ->orderBy('created_at', 'desc');
+    }
+}
+```
+
+## 71. How would you implement a robust caching strategy?
+
+Advanced caching implementation:
+```php
+class ProductService
+{
+    public function getProductDetails($id)
+    {
+        return Cache::tags(['products', "product-{$id}"])
+            ->remember("product-{$id}", now()->addHours(24), function () use ($id) {
+                return Product::with(['categories', 'variants'])
+                    ->withCount('reviews')
+                    ->findOrFail($id);
+            });
+    }
+
+    public function invalidateProductCache($id)
+    {
+        Cache::tags(["product-{$id}"])->flush();
+        
+        // Implement cache warming
+        dispatch(new WarmProductCache($id));
+    }
+}
+```
+
+## 72. How would you implement a rate-limiting system with dynamic rules?
+
+Advanced rate limiting:
+```php
+class RateLimitingService
+{
+    public function configureRateLimits()
+    {
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(60)->by(optional($request->user())->id ?: $request->ip())
+                ->response(function () {
+                    return response()->json([
+                        'error' => 'Too many requests',
+                        'retry_after' => RateLimiter::availableIn($key)
+                    ], 429);
+                });
+        });
+
+        RateLimiter::for('uploads', function (Request $request) {
+            return [
+                Limit::perMinute(100)->by($request->ip()),
+                Limit::perDay(1000)->by($request->user()->id),
+            ];
+        });
+    }
+}
+```
+
+## 73. How would you implement a job batching system with progress tracking?
+
+Advanced job batching:
+```php
+class ProcessUserData implements ShouldQueue
+{
+    public function handle()
+    {
+        Bus::batch([
+            new ProcessUserProfile($this->user),
+            new ProcessUserOrders($this->user),
+            new ProcessUserAnalytics($this->user)
+        ])->then(function (Batch $batch) {
+            // All jobs completed
+            Event::dispatch(new UserDataProcessed($this->user));
+        })->catch(function (Batch $batch, Throwable $e) {
+            // First batch job failure
+            Log::error('Batch failed', ['exception' => $e]);
+        })->finally(function (Batch $batch) {
+            // Batch completed
+            Cache::tags(['user-processing'])->forget("user-{$this->user->id}");
+        })->dispatch();
+    }
+}
+```
+
+## 74. How would you implement a feature flag system?
+
+Feature flag implementation:
+```php
+class FeatureFlag
+{
+    public static function isEnabled(string $feature): bool
+    {
+        return Cache::remember("feature-{$feature}", now()->addMinutes(5), function () use ($feature) {
+            return DB::table('feature_flags')
+                ->where('name', $feature)
+                ->where('enabled', true)
+                ->where(function ($query) {
+                    $query->whereNull('expires_at')
+                          ->orWhere('expires_at', '>', now());
+                })->exists();
+        });
+    }
+}
+
+// Usage in blade
+@feature('new-ui')
+    <x-new-interface />
+@else
+    <x-legacy-interface />
+@endfeature
+```
+
+## 75. How would you implement a robust search system with multiple indexes?
+
+Advanced search implementation:
+```php
+class SearchService
+{
+    public function search(string $query, array $filters = [])
+    {
+        return Product::search($query)
+            ->within('products_' . app()->getLocale())
+            ->whereIn('category_id', $filters['categories'] ?? [])
+            ->when($filters['price_range'] ?? false, function ($search, $range) {
+                return $search->whereBetween('price', [$range['min'], $range['max']]);
+            })
+            ->orderBy($filters['sort'] ?? '_score', $filters['direction'] ?? 'desc')
+            ->take($filters['per_page'] ?? 25)
+            ->get();
+    }
+}
+```
+
+These questions cover advanced topics that senior Laravel developers should be familiar with. Each demonstrates practical implementation details and best practices for complex scenarios.
+
+**Reference:** [Laravel Advanced Documentation](https://laravel.com/docs)
 
