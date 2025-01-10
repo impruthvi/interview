@@ -312,7 +312,7 @@
 34. **What is the repository pattern in Laravel?**
     The repository pattern separates business logic from data access logic by abstracting database queries into repository classes.
 
-    **Reference:** [Repository Pattern](https://laravel.io/articles/repository-pattern-in-laravel)
+    **Reference:** [Repository Pattern]([https://laravel.io/articles/repository-pattern-in-laravel](https://medium.com/@soulaimaneyh/laravel-repository-pattern-da4e1e3efc01))
 
 35. **What is the difference between `Session` and `Cache` in Laravel?**
     - **Session**: Stores user-specific data for the duration of the user's session.
